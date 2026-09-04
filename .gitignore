@@ -4,3 +4,4 @@ chroma_db/
 chroma_db_app/
 .venv/
 venv/
+uploaded_pdfs/ 
