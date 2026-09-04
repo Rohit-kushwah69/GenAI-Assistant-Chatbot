@@ -11,6 +11,9 @@ from langchain_google_genai import (
 from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate
 
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 
 # =========================================================
 # 1. PAGE CONFIG
@@ -19,7 +22,7 @@ from langchain_core.prompts import ChatPromptTemplate
 st.set_page_config(
     page_title="RAG AI Assistant",
     page_icon="🤖",
-    layout="centered"
+    layout="wide"
 )
 
 
@@ -37,48 +40,33 @@ if not api_key:
 
 
 # =========================================================
-# 3. HEADER
+# 3. CONSTANTS
+# =========================================================
+
+CHROMA_PATH = "./chroma_db"
+EMBEDDING_MODEL = "models/gemini-embedding-001"
+LLM_MODEL = "gemini-3.6-flash"
+UPLOAD_FOLDER = "./uploaded_pdfs"
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+
+# =========================================================
+# 4. HEADER
 # =========================================================
 
 st.title("🤖 RAG AI Assistant")
-st.caption("Ask questions from your PDF")
+st.caption("Upload a PDF and ask questions from it")
 
 st.divider()
 
 
 # =========================================================
-# 4. CONSTANTS
-# =========================================================
-
-CHROMA_PATH = "./chroma_db"
-
-EMBEDDING_MODEL = "models/gemini-embedding-001"
-
-LLM_MODEL = "gemini-3.6-flash"
-
-
-# =========================================================
-# 5. CHECK CHROMA DATABASE
-# =========================================================
-
-if not os.path.exists(CHROMA_PATH):
-
-    st.error(
-        "❌ ChromaDB not found.\n\n"
-        "Make sure the `chroma_db` folder exists "
-        "in the project directory."
-    )
-
-    st.stop()
-
-
-# =========================================================
-# 6. CREATE EMBEDDING MODEL
+# 5. LOAD EMBEDDINGS
 # =========================================================
 
 @st.cache_resource
 def load_embeddings():
-
     return GoogleGenerativeAIEmbeddings(
         model=EMBEDDING_MODEL,
         google_api_key=api_key
@@ -89,13 +77,13 @@ embeddings = load_embeddings()
 
 
 # =========================================================
-# 7. LOAD CHROMA DATABASE
+# 6. LOAD CHROMA
 # =========================================================
 
 @st.cache_resource
 def load_vector_store():
-
     return Chroma(
+        collection_name="rag_documents",
         persist_directory=CHROMA_PATH,
         embedding_function=embeddings
     )
@@ -105,27 +93,112 @@ vector_store = load_vector_store()
 
 
 # =========================================================
-# 8. CREATE RETRIEVER
+# 7. SIDEBAR - PDF UPLOAD
+# =========================================================
+
+with st.sidebar:
+
+    st.header("📄 PDF Upload")
+
+    uploaded_file = st.file_uploader(
+        "Choose a PDF file",
+        type=["pdf"],
+        help="Upload the PDF you want to ask questions about."
+    )
+
+    if uploaded_file is not None:
+
+        st.info(f"📄 {uploaded_file.name}")
+
+        if st.button(
+            "🚀 Process PDF",
+            use_container_width=True
+        ):
+
+            with st.spinner("📚 Processing PDF..."):
+
+                try:
+                    # Save PDF
+                    pdf_path = os.path.join(
+                        UPLOAD_FOLDER,
+                        uploaded_file.name
+                    )
+
+                    with open(pdf_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+
+                    # Load PDF
+                    loader = PyPDFLoader(pdf_path)
+                    documents = loader.load()
+
+                    # Split PDF into chunks
+                    text_splitter = RecursiveCharacterTextSplitter(
+                        chunk_size=1000,
+                        chunk_overlap=150
+                    )
+
+                    chunks = text_splitter.split_documents(documents)
+
+                    # Store chunks in ChromaDB
+                    vector_store.add_documents(
+                        documents=chunks
+                    )
+
+                    # Remember processed PDF
+                    st.session_state["pdf_processed"] = True
+                    st.session_state["pdf_name"] = uploaded_file.name
+
+                    st.success(
+                        f"✅ PDF ready!\n\n"
+                        f"Pages: {len(documents)}\n"
+                        f"Chunks: {len(chunks)}"
+                    )
+
+                except Exception as e:
+                    st.error(
+                        f"❌ PDF processing failed:\n\n{str(e)}"
+                    )
+
+    st.divider()
+
+    if st.session_state.get("pdf_processed"):
+        st.success(
+            f"✅ Ready: {st.session_state.get('pdf_name', 'PDF')}"
+        )
+    else:
+        st.warning("⚠️ Upload and process a PDF first.")
+
+    st.divider()
+
+    if st.button(
+        "🗑️ Clear Chat",
+        use_container_width=True
+    ):
+        st.session_state.messages = []
+        st.rerun()
+
+
+# =========================================================
+# 8. RETRIEVER - FAST
 # =========================================================
 
 retriever = vector_store.as_retriever(
     search_type="similarity",
     search_kwargs={
-        "k": 4
+        "k": 2
     }
 )
 
 
 # =========================================================
-# 9. LOAD GEMINI
+# 9. LOAD GEMINI LLM
 # =========================================================
 
 @st.cache_resource
 def load_llm():
-
     return ChatGoogleGenerativeAI(
         model=LLM_MODEL,
-        temperature=0.2,
+        temperature=0,
         google_api_key=api_key
     )
 
@@ -134,201 +207,92 @@ llm = load_llm()
 
 
 # =========================================================
-# 10. RAG PROMPT
+# 10. PROMPT - SHORT AND FAST
 # =========================================================
 
 prompt = ChatPromptTemplate.from_template(
     """
-You are a helpful PDF question-answering assistant.
+Answer the question using ONLY the PDF context below.
 
-Your task is to answer the user's question using ONLY
-the information present in the provided context.
-
-IMPORTANT RULES:
-
-1. Use only the provided context.
-2. Do not use outside knowledge.
-3. If the context contains the answer, answer clearly.
-4. If the context does not contain the answer, say exactly:
-
+If the answer is not present in the context, say:
 "I could not find the answer in the provided PDF."
 
-5. Do not make up information.
-6. Keep the answer simple and easy to understand.
+Be concise. Do not use outside knowledge.
 
----------------- CONTEXT ----------------
-
+CONTEXT:
 {context}
 
----------------- QUESTION ----------------
-
+QUESTION:
 {question}
 
----------------- ANSWER ----------------
+ANSWER:
 """
 )
 
 
 # =========================================================
-# 11. EXTRACT RESPONSE TEXT
-# =========================================================
-
-def extract_response_text(response):
-
-    content = response.content
-
-    # Gemini may return list content
-    if isinstance(content, list):
-
-        text_parts = []
-
-        for item in content:
-
-            if isinstance(item, dict):
-
-                if item.get("type") == "text":
-
-                    text_parts.append(
-                        item.get("text", "")
-                    )
-
-            elif isinstance(item, str):
-
-                text_parts.append(item)
-
-        return "\n".join(text_parts).strip()
-
-    return str(content).strip()
-
-
-# =========================================================
-# 12. RAG FUNCTION
+# 11. FAST RAG FUNCTION
 # =========================================================
 
 def rag_chain(question):
 
-    # -----------------------------------------------------
-    # STEP 1: Retrieve documents
-    # -----------------------------------------------------
+    # Retrieve only the 2 most relevant chunks
+    docs = retriever.invoke(question)
 
-    relevant_docs = retriever.invoke(question)
-
-    # -----------------------------------------------------
-    # STEP 2: Check retrieval
-    # -----------------------------------------------------
-
-    if not relevant_docs:
-
+    if not docs:
         return (
             "I could not find the answer in the provided PDF.",
             []
         )
 
-    # -----------------------------------------------------
-    # STEP 3: Combine document chunks
-    # -----------------------------------------------------
-
+    # Keep the context small for faster Gemini response
     context = "\n\n".join(
-        doc.page_content
-        for doc in relevant_docs
+        doc.page_content[:1500]
+        for doc in docs
     )
 
-    # -----------------------------------------------------
-    # STEP 4: Create prompt
-    # -----------------------------------------------------
-
+    # Build prompt
     formatted_prompt = prompt.format(
         context=context,
         question=question
     )
 
-    # -----------------------------------------------------
-    # STEP 5: Send to Gemini
-    # -----------------------------------------------------
+    # Ask Gemini
+    response = llm.invoke(formatted_prompt)
 
-    response = llm.invoke(
-        formatted_prompt
-    )
+    answer = response.content
 
-    # -----------------------------------------------------
-    # STEP 6: Extract answer
-    # -----------------------------------------------------
+    # Gemini can sometimes return a list
+    if isinstance(answer, list):
+        answer = "\n".join(
+            item.get("text", "")
+            for item in answer
+            if isinstance(item, dict)
+        )
 
-    answer = extract_response_text(response)
-
-    return answer, relevant_docs
+    return str(answer).strip(), docs
 
 
 # =========================================================
-# 13. SESSION STATE
+# 12. SESSION STATE
 # =========================================================
 
 if "messages" not in st.session_state:
-
     st.session_state.messages = []
 
 
 # =========================================================
-# 14. SIDEBAR
-# =========================================================
-
-with st.sidebar:
-
-    st.header("⚙️ RAG Settings")
-
-    st.success("RAG System Ready ✅")
-
-    st.write("### Embedding")
-
-    st.code(
-        EMBEDDING_MODEL
-    )
-
-    st.write("### LLM")
-
-    st.code(
-        LLM_MODEL
-    )
-
-    st.write("### Retriever")
-
-    st.code(
-        "Similarity Search"
-    )
-
-    st.write(
-        "Top K = 4"
-    )
-
-    st.divider()
-
-    if st.button(
-        "🗑️ Clear Chat",
-        use_container_width=True
-    ):
-
-        st.session_state.messages = []
-
-        st.rerun()
-
-
-# =========================================================
-# 15. DISPLAY CHAT HISTORY
+# 13. CHAT HISTORY
 # =========================================================
 
 for message in st.session_state.messages:
 
-    with st.chat_message(
-        message["role"]
-    ):
-
-        st.markdown(
-            message["content"]
-        )
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
 
 # =========================================================
-# 16. CHAT INPUT
+# 14. CHAT INPUT
 # =========================================================
 
 user_input = st.chat_input(
@@ -337,25 +301,16 @@ user_input = st.chat_input(
 
 
 # =========================================================
-# 17. PROCESS USER QUESTION
+# 15. PROCESS QUESTION
 # =========================================================
 
 if user_input:
 
-    # -----------------------------------------------------
     # Show user message
-    # -----------------------------------------------------
-
     with st.chat_message("user"):
+        st.markdown(user_input)
 
-        st.markdown(
-            user_input
-        )
-
-    # -----------------------------------------------------
     # Save user message
-    # -----------------------------------------------------
-
     st.session_state.messages.append(
         {
             "role": "user",
@@ -363,40 +318,27 @@ if user_input:
         }
     )
 
-    # -----------------------------------------------------
-    # Generate AI answer
-    # -----------------------------------------------------
-
+    # Generate answer
     with st.chat_message("assistant"):
 
-        with st.spinner(
-            "🔍 Searching PDF..."
-        ):
+        with st.spinner("🔍 Finding answer..."):
 
             try:
 
-                answer, relevant_docs = rag_chain(
-                    user_input
-                )
+                answer, docs = rag_chain(user_input)
 
-                # -------------------------------------------------
-                # Display answer
-                # -------------------------------------------------
-
+                # Show answer
                 st.markdown(answer)
 
-                # -------------------------------------------------
-                # Display retrieved sources
-                # -------------------------------------------------
-
-                if relevant_docs:
+                # Retrieved chunks
+                if docs:
 
                     with st.expander(
                         "📚 Retrieved PDF Chunks"
                     ):
 
                         for i, doc in enumerate(
-                            relevant_docs,
+                            docs,
                             start=1
                         ):
 
@@ -404,7 +346,6 @@ if user_input:
                                 f"### Chunk {i}"
                             )
 
-                            # Metadata
                             metadata = doc.metadata
 
                             page = metadata.get(
@@ -447,11 +388,7 @@ if user_input:
 
                 st.error(answer)
 
-
-    # -----------------------------------------------------
     # Save assistant response
-    # -----------------------------------------------------
-
     st.session_state.messages.append(
         {
             "role": "assistant",
