@@ -22,3 +22,6 @@ Thumbs.db
 
 # VS Code settings
 .vscode/
+
+# Chat AI notebook - keep locally, don't upload to GitHub
+Chat_AI.ipynb
