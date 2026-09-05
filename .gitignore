@@ -12,10 +12,6 @@ __pycache__/
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
 
-# ChromaDB local database
-chroma_db/
-chroma_db_new/
-
 # Uploaded PDFs / temporary files
 uploaded_pdfs/
 temp/
