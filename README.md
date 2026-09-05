@@ -7,7 +7,7 @@ The application allows users to ask questions about information contained in a P
 ## 🌐 Live Demo
 
 🚀 **Try the GenAI Assistant:**  
-[YOUR_STREAMLIT_APP_URL](https://genai-assistant018.streamlit.app/)
+https://genai-assistant018.streamlit.app
 
 ---
 
