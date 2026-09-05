@@ -22,7 +22,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 # =========================================================
 
 st.set_page_config(
-    page_title="DocMind AI",
+    page_title="GenAI Assistant",
     page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -122,7 +122,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 st.markdown(
     """
     <div class="hero">
-        <h1>🧠 DocMind AI</h1>
+        <h1>🧠 GenAI Assistant</h1>
         <p>Upload your PDF and get accurate answers based only on that document.</p>
     </div>
     """,
@@ -366,7 +366,7 @@ def rag_chain(question: str):
 
     retriever = st.session_state.vector_store.as_retriever(
         search_type="similarity",
-        search_kwargs={"k": 4}
+        search_kwargs={"k": 3}
     )
 
     attempt = 0
