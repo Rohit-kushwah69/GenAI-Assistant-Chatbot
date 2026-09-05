@@ -1,9 +1,8 @@
 streamlit
 python-dotenv
-langchain
-langchain-core
-langchain-community
 langchain-google-genai
 langchain-chroma
-chromadb
+langchain-core
+langchain-community
+langchain-text-splitters
 pypdf

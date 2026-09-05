@@ -1,7 +1,28 @@
+# Environment variables / API keys
 .env
-__pycache__/
-chroma_db/
-chroma_db_app/
-.venv/
+
+# Virtual environment
 venv/
-uploaded_pdfs/ 
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# ChromaDB local database
+chroma_db/
+chroma_db_new/
+
+# Uploaded PDFs / temporary files
+uploaded_pdfs/
+temp/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# VS Code settings
+.vscode/
