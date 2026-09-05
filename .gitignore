@@ -19,7 +19,6 @@ chroma_db_new/
 # Uploaded PDFs / temporary files
 uploaded_pdfs/
 temp/
-data/
 
 # OS files
 .DS_Store
