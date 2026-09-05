@@ -366,7 +366,7 @@ def rag_chain(question: str):
 
     retriever = st.session_state.vector_store.as_retriever(
         search_type="similarity",
-        search_kwargs={"k": 3}
+        search_kwargs={"k": 2}
     )
 
     attempt = 0
@@ -437,13 +437,55 @@ if user_input:
     with st.chat_message("assistant", avatar="🧠"):
 
         with st.spinner("🔍 Finding the answer..."):
-
             try:
-                answer = rag_chain(user_input)
-                st.markdown(answer)
+                # Retrieve only the most relevant chunks
+                retriever = st.session_state.vector_store.as_retriever(
+                    search_type="similarity",
+                    search_kwargs={"k": 2}
+                )
+
+                docs = retriever.invoke(user_input)
+
+                if not docs:
+                    answer = "I could not find the answer in the provided PDF."
+                    st.markdown(answer)
+
+                else:
+                    context = "\n\n".join(doc.page_content for doc in docs)
+
+                    formatted_prompt = prompt.format(
+                        context=context,
+                        question=user_input
+                    )
+
+                    # Stream Gemini response so text appears as it is generated
+                    answer_parts = []
+                    answer_placeholder = st.empty()
+
+                    for chunk in llm.stream(formatted_prompt):
+                        content = chunk.content
+
+                        if isinstance(content, list):
+                            content = "".join(
+                                item.get("text", "")
+                                for item in content
+                                if isinstance(item, dict)
+                            )
+
+                        if content:
+                            answer_parts.append(str(content))
+                            answer_placeholder.markdown(
+                                "".join(answer_parts) + "▌"
+                            )
+
+                    answer = "".join(answer_parts).strip()
+                    answer_placeholder.markdown(answer)
 
             except Exception as e:
                 answer = f"❌ RAG Error\n\n`{str(e)}`"
                 st.error(answer)
 
-    st.session_state.messages.append({"role": "assistant", "content": answer})
+    st.session_state.messages.append(
+        {"role": "assistant", "content": answer}
+    )
+
